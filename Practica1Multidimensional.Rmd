@@ -1,0 +1,292 @@
+---
+title: "Clase Práctica 1: Confiabilidad de estructuras multidimensionales"
+author: "HENC"
+date: "2023-10-03"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE)
+```
+
+```{r}
+library(MplusAutomation)
+library(data.table)
+library(dplyr)
+```
+
+```{r echo=FALSE, include=FALSE, eval=FALSE}
+test<-mplusObject(MONTECARLO = "NAMES=U1-U15 y1 x1 x2 x3 x4; 
+                  GENERATE = U1-U15(1);
+                  CATEGORICAL = U1-U15;
+                  NOBS = 10000;
+                  SEED = 3454367;
+                  NREP = 1;
+                  SAVE = Sim_data_2_*.dat;
+                  REPSAVE = all;", 
+                  MODELPOPULATION ="
+
+    x4@.7;
+    [x4@.5];
+
+    x3@4;
+    [x3@3];
+
+    x2@7
+    [x2@4];
+
+    x1@13;
+    [x1@5];
+
+    x3 with x1@-.5;
+    x4 with y1@-.3;
+    x1 with y1@.35;
+
+    [y1@3.5];
+    y1@8;
+    
+    
+
+     f1 by           u1@2.5
+                     u2@2.2
+                     u3@2.2
+                     u4@2.2
+                     u5@2.2;
+      f2 by          u6@1.2
+                     u7@.5
+                     u8@.3
+                     u9@.02;
+                     
+      f3 by          u10@2.9
+                     u11@2.7
+                     u12@1.9;
+                     
+      f4 by         u13@2.9
+                     u14@2.7
+                     u15@2.1;
+
+      [f1@0];
+      f1@1;
+       [f2@0];
+      f2@1;
+       [f3@0];
+      f3@1;
+       [f4@0];
+      f4@1;
+      
+      h by f1@2 f3@2 f4@2;
+
+
+                   [u1$1@2.1]
+                   [u2$1@4.7]
+                   [u3$1@2.7]
+                   [u4$1@3.2]
+                   [u5$1@2.4]
+                   [u6$1@2.9]
+                   [u7$1@1.8]
+                   [u8$1@1.6]
+                   [u9$1@1.7]
+                   [u10$1@4.1]
+                   [u11$1@3.6]
+                   [u12$1@3.5]
+                   [u13$1@4.1]
+                   [u14$1@3.6]
+                   [u15$1@3.5];
+
+
+      h on y1@-.5;
+      h on x1@-.3;
+      h on x2@.15;
+      h on x3@.06;
+      h on x4@.14;",
+    
+                  ANALYSIS = 
+                    "TYPE = ;
+                  ALGORITHM=INTEGRATION;
+                  PROCESS=8;")
+
+mplusModeler(test, modelout="Sim_data_2.inp",  writeData = "always",
+               hashfilename = FALSE)
+```
+
+```{r}
+D<-fread("Sim_data_2_1.dat")
+```
+
+# Modelo 1
+
+El primer modelo que vamos a estimar es un modelo jerárquico (h) de cuatro dimensiones (f1, f2, f3 y f4). Es decir, la variable latente explica la variabilidad de las cuatro dimensiones y estas en turno explican la de las indicaciones. Esto modelo se puede estimar facilmente con la función `sem()` del paquete `lavaan`. 
+
+Un problema es que el resultado no es de fiar "the optimizer warns that a solution has NOT been found!". Esto significa que el modelo está pobremente especificado y tendremos que hacer cambios (en los confines del modelo teórico) para poder obtener resultados.  
+
+```{r}
+library(lavaan)
+
+mod.1<-'f1 =~ V1 + V2 + V3 + V4 + V5 
+        f2 =~ V6 + V7 + V8 + V9
+        f3 =~ V10 + V11 + V12 
+        f4 =~ V13 + V14 + V15
+        h =~ f1 + f2 + f3 + f4'
+
+r.mod.1<-sem(mod.1, data=D, ordered=T)
+```
+
+## Mejoramos la estimacion
+
+Una forma usual de mejorar la optimización consiste en brindar información útil como por ejemplo la escala de las varianzas de la variable latente. Esto se hace con la instrucción `h ~~ 1*h`. Esto significa que la varianza del factor de alto orden es igual a 1. Hacemos lo mismo para el resto de los factores. 
+
+El modelo se estimó pero con problemas. En este caso se halló una solución pero a costa de que algunas covarianzas o varianzas son negativas. Lo cual tendría poco sentido. Esto es síntoma, generalmente, de que hay por lo menos una variable muy problemática. 
+
+```{r}
+mod.1<-'f1 =~ V1 + V2 + V3 + V4 + V5 
+        f2 =~ V6 + V7 + V8 + V9
+        f3 =~ V10 + V11 + V12 
+        f4 =~ V13 + V14 + V15
+        h =~ f1 + f2 + f3 + f4
+        h ~~ 1*h
+        f1 ~~ 1*f1
+        f2 ~~ 1*f2
+        f3 ~~ 1*f3
+        f4 ~~ 1*f4'
+
+r.mod.1<-cfa(mod.1, data=D, ordered=T)
+```
+
+## Extraemos resultados
+
+
+
+```{r}
+summary(r.mod.1, fit.measures=TRUE)
+```
+
+El ajuste global del modelo es malo. Los estadísticos básicos no se pudieron computar. Cuando los robustos no son computables es posible reportar los rescalados, ya que son la mejor segunda opción. 
+
+```{r}
+fitMeasures(r.mod.1, c("cfi.robust","tli.robust","rmsea.robust"))
+```
+
+Confirmamos que el modelo tiene un ajuste muy pobre. 
+
+```{r}
+fitMeasures(r.mod.1, c("cfi.scaled","tli.scaled","rmsea.scaled"))
+```
+
+Al revisar las cargas factoriales notamos que V9 y V8 tienen un comportamiento muy deficiente puesto que tienen mucho error. Esto es señal de que la dimensión a la que pertenecen está pobremente especificada. 
+
+```{r}
+inspect(r.mod.1,what="std")
+```
+
+## Confiabilidad
+
+No sería buena idea estimar confiabilidad con estos resultados. Pero para ejemplificar los cálculos lo haremos a continuación.
+
+Para escalas multidimensionales tenemos dos opciones de funciones dentro de semTools: `reliabilityL2` y `compRelSEM`. La segunda opción corresponde a la función más actualizada y es la que se recomienda utilizar. 
+
+La confiabilidad total de la escala ($\omega_t$,  omegaL1) es igual a .72 de acuerdo con `reliabilityL2`. 
+
+La confiabilidad total de las dimensiones atribuible al primer factor ($\omega_t$,  omegaL2) es igual a .70 de acuerdo con `reliabilityL2`. 
+
+La confiabilidad total de la escala ($\omega_t$) es igual a .79 de acuerdo con `compRelSEM`. Este valor está ligeramente sobreestimado debido a problemas con la función. 
+
+La confiabilidad total de cada dimensión $i$ ($\omega_{t,i}$) se obtiene con la función `compRelSEM(r.mod.1)`. 
+
+La confiabilidad total del factor general (h) ($\omega_{h}$) se obtiene con la función `compRelSEM(r.mod.1, higher = "h", ord.scale = F)`. Es igual a .582. 
+
+```{r}
+library(semTools)
+
+reliabilityL2(r.mod.1, "h")
+compRelSEM(r.mod.1, return.total = -1, ord.scale = F) # Reliability of the full scale
+compRelSEM(r.mod.1) # Reliability of each dimension
+compRelSEM(r.mod.1, higher = "h", ord.scale = F) # Omega hierarchical is the true score variance in a composite that is attributable to the general factor
+```
+
+# Modelo 2
+
+Ahora estimaremos una segunda propuesta de modelo de tres dimensiones (f1, f3 Y f4) con h como factor general. 
+
+```{r}
+mod.2<-'f1 =~ V1 + V2 + V3 + V4 + V5 
+        f3 =~ V10 + V11 + V12 
+        f4 =~ V13 + V14 + V15
+        h =~ f1 + f3 + f4'
+
+r.mod.2<-cfa(mod.2, data=D, ordered=T)
+```
+
+# Extraemos resultados
+
+Este modelo tiene muy buen ajuste cuando se consideran los estadísticos de ajuste global relativos. 
+
+```{r}
+summary(r.mod.2, fit.measures=TRUE)
+```
+
+```{r}
+fitMeasures(r.mod.2, c("cfi.robust","tli.robust","rmsea.robust"))
+```
+
+## Confiabilidad
+
+La confiabilidad total de la escala ($\omega_t$,  omegaL1) es igual a .97 de acuerdo con `reliabilityL2`. 
+
+La confiabilidad total de las dimensiones atribuible al primer factor ($\omega_t$,  omegaL2) es igual a .97 de acuerdo con `reliabilityL2`. 
+
+La confiabilidad total de la escala ($\omega_t$) es igual a .99 de acuerdo con `compRelSEM`. Este valor está ligeramente sobreestimado debido a problemas con la función. 
+
+La confiabilidad total del factor general (h) ($\omega_{h}$) se obtiene con la función `compRelSEM(r.mod.1, higher = "h", ord.scale = F)`. Es igual a .97. 
+
+
+```{r}
+reliabilityL2(r.mod.2, "h")
+compRelSEM(r.mod.2, return.total = TRUE, ord.scale = F) # Omega total> the total true score variance in a composite. 
+compRelSEM(r.mod.2, higher = "h", ord.scale = F) # Omega hierarchical is the true score variance in a composite that is attributable to the general factor
+```
+
+# Diagramas
+
+```{r}
+#install.packages("devtools")
+#devtools::install_github("alishinski/lavaanPlot")
+library(lavaanPlot)
+
+lavaanPlot(model = r.mod.2, node_options = list(shape = "box", fontname = "Helvetica"), 
+            edge_options = list(color = "red"), coefs = T,
+            stand = TRUE, graph_options = list(rankdir = "LR"))
+```
+
+# Scores observados vs scores factoriales
+
+Al igual que en el caso unidimensional podemos producir los scores factoriales (scores óptimos dado el modelo) con la función `lavPredict`.
+
+```{r}
+p.mod.2<-data.frame(lavPredict(r.mod.2))
+```
+
+Si revisamos las primeras filas del objeto `p.mod.2`, nos daremos cuenta que se generaron cuatro nuevas variables. Estas contienen los scores de los tres factores y del factor general. 
+
+```{r}
+head(p.mod.2)
+```
+
+Podemos graficar el score del factor general con el score del factor observado para ver su relación y grado de separación. 
+
+```{r}
+Dp<-data.frame(cbind(D,p.mod.2))
+Dp$score.t<-rowSums(D[,c(1:5,10:15)])
+
+boxplot(Dp$h~Dp$score.t)
+```
+
+Podemos hacer lo mismo con la primera dimensión. 
+
+```{r}
+Dp$score.d1<-rowSums(D[,c(1:5)])
+
+boxplot(Dp$f1~Dp$score.d1)
+```
+
+
+

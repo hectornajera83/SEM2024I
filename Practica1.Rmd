@@ -1,0 +1,485 @@
+---
+title: "Clase Práctica 1: Confiabilidad estructuras unidimensionales"
+author: "HENC"
+date: "2023-10-03"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message = FALSE)
+```
+
+```{r}
+library(MplusAutomation)
+library(data.table)
+library(dplyr)
+```
+
+```{r echo=FALSE, include=FALSE, eval=FALSE}
+test<-mplusObject(MONTECARLO = "NAMES=U1-U15 y1 x1 x2 x3 x4; 
+                  GENERATE = U1-U15(1);
+                  CATEGORICAL = U1-U15;
+                  NOBS = 10000;
+                  SEED = 3454367;
+                  NREP = 1;
+                  SAVE = Sim_data_1_*.dat;
+                  REPSAVE = all;", 
+                  MODELPOPULATION ="
+
+    x4@.7;
+    [x4@.5];
+
+    x3@4;
+    [x3@3];
+
+    x2@7
+    [x2@4];
+
+    x1@13;
+    [x1@5];
+
+    x3 with x1@-.5;
+    x4 with y1@-.3;
+    x1 with y1@.35;
+
+    [y1@3.5];
+    y1@8;
+
+     f1 by           u1@2.5
+                     u2@2.2
+                     u3@2.2
+                     u4@2.2
+                     u5@2.2
+                     u6@1.2
+                     u7@.05
+                     u8@.03
+                     u9@.02
+                     u10@1.9
+                     u11@1.7
+                     u12@1.1
+                     u13@1.9
+                     u14@1.7
+                     u15@1.1;
+
+      [f1@0];
+      f1@1;
+
+
+                   [u1$1@2.1]
+                   [u2$1@4.7]
+                   [u3$1@2.7]
+                   [u4$1@3.2]
+                   [u5$1@2.4]
+                   [u6$1@2.9]
+                   [u7$1@1.8]
+                   [u8$1@1.6]
+                   [u9$1@1.7]
+                   [u10$1@.1]
+                   [u11$1@.6]
+                   [u12$1@.5]
+                   [u13$1@4.1]
+                   [u14$1@3.6]
+                   [u15$1@3.5];
+
+
+      f1 on y1@-.5;
+      f1 on x1@-.3;
+      f1 on x2@.15;
+      f1 on x3@.06;
+      f1 on x4@.14;",
+    
+                  ANALYSIS = 
+                    "TYPE = ;
+                  ALGORITHM=INTEGRATION;
+                  PROCESS=8;")
+
+mplusModeler(test, modelout="Sim_data_1.inp",  writeData = "always",
+               hashfilename = FALSE)
+```
+
+# Cargamos los datos
+
+Para cargar los datos con el nombre `Sim_data_1_1.dat` vamos a utilizar la función `fread()` del paquete `data.table`. Se recomienda guardar este archivo en la misma carpeta en la que se ubica la sintaxis de R. De otra manera se tendría que especificar la ruta al folder en el que se encuentren los datos. 
+
+Los datos los vamos a guardar en el objeto llamado `D`. Por eso la función `fread()` asigna con `<-` sus resultados al objeto `D`. 
+
+**Recuerde que R-software trabaja con objetos y es buena idea utilizarlos siempre que sea posible**
+
+```{r}
+D<-fread("Sim_data_1_1.dat")
+```
+
+Para explorar los datos (guardados en el objeto `D`) es posible utilizar diferentes funciones. Por ejemplo, para ver las variables que contiene la base de datos guardados en `D`. Por ejemplo, podemos utilizar la función `names()`. 
+
+```{r}
+names(D)
+```
+
+También podemos utilizar la función `str()`. Esta función nos permite explorar las propiedades de cada una de las variables.
+
+```{r}
+str(D)
+```
+
+Por supuesto que hay distintos procedimientos que se podrían utilizar para analizar las variables de la base de datos. Desde tabulados básicos hasta algún modelo de SEM. Por ejemplo, podemos calcular la media de los primeros nuevos indicadores. La función `colMeans()` calcula el promedio de las columnas que se indican en la función de la forma `D[,1:9]`. Esto es de las primeras nueve variables de la base de datos. Se multiplica por 100 para obtener proporciones. 
+
+```{r}
+colMeans(D[,1:9])*100
+```
+
+También podemos obtener la matriz de correlación de las primeras nueve variables con la función `cor()`. Esta función es bastante sencilla. Sin embargo, hay funciones más potentes que permiten hacer procesamientos más complejos como distintos tipos de correlación u obtener un correlograma.  
+
+```{r}
+cor(D[,1:9])
+```
+
+```{r}
+#install.packages("corrgram")
+library(corrgram)
+
+corrgram(D[,1:9],
+         order = TRUE,              
+         upper.panel = panel.pie,   
+         lower.panel = panel.shade, 
+         text.panel = panel.txt,  
+         main = "Correlogram") 
+```
+
+
+# Análisis de confiabilidad
+
+A continuación se realizan cuatro análisis de confiabilidad a partir de modelos de SEM. Se trata de cuatro modelos distintos de medición a partir de variables categóricas. Piense en estos modelos como casos competitivos de un mismo propósito de medición. 
+
+Existen tres preguntas centrales respecto a este modelo:
+
+1. ¿Se sostiene la estructura del modelo dados los datos?
+2. ¿Todos los indicadores tienen errores aceptables de medición?
+3. ¿Cuál es la confiabilidad de los puntajes?
+
+Considere que el flujo de trabajo en SEM consiste en los siguientes pasos:
+
+1. Especificación del modelo estructural
+
+2. Identificación del modelo estructural
+
+3. Estimación del modelo con el paquete `lavaan()`. 
+
+4. Evaluación del ajuste global del modelo
+
+5. Evaluación de las cargas factoriales y el error puntual de medición
+
+6. Estimación de la confiabilidad con $\omega$
+
+7. Interpretación
+
+# Modelo 1
+
+El primer modelo propone una estructura unidimensional de nueve indicadores (V1 a V9). Lo primero que vamos a hacer es cargar el paquete `lavaan` con la función `library()`. 
+
+```{r}
+library(lavaan)
+```
+
+## Especificación
+
+La especificación del modelo se realiza de la siguiente manera. Primero se asigna un nombre a la variable latente. En este caso "f". Posteriormente se especifica la estructura. Dado que se trata de un modelo unidimensional, basta con incluir a las variables del lado derecho de la ecuación. Es importante notar que la ecuación es determinística de izquierda a derecha. Es decir, es la "f" la que explica la variabilidad de los nueve indicadores. La clave de esta relación se encuentra especificada "=~". Esta especificación se guarda en el objeto `mod.1`. 
+
+```{r}
+mod.1<-'f =~ V1 + V2 + V3 + V4 + V5 + V6 + V7 + V8 + V9'
+```
+
+## Estimación
+
+Una vez que se especifica el modelo de SEM, es posible hacer la estimación con la función `sem()`. Los argumentos de la función son: el modelo estructural `mod.1`, los datos a utilizar `D` y el tipo de datos con `ordered=T` (categóricos. La *T* es de *TRUE*). Los resultados se guardan en el objeto `r.mod.1`.
+
+```{r}
+r.mod.1<-sem(mod.1, data=D, ordered=T)
+```
+
+## Extracción de resultados
+
+Para obtener los resultados globales del modelo de SEM es posible utilizar la función `summary()`. Esto se hace sobre el objeto en el que guardamos los resultados. Además le solicitamos que nos reporte las medidas globales de ajuste. 
+
+```{r}
+summary(r.mod.1, fit.measures=TRUE)
+```
+
+Por ahora nos vamos a concentrar en los tres estadísticos relativos de ajuste global. Estos se pueden obtener con la función `fitMeasures()`. 
+
+```{r}
+fitMeasures(r.mod.1, c("cfi.robust","tli.robust","rmsea.robust"))
+```
+
+Podemos extraer los valores de las cargas factoriales estandarizadas con la función `inspect()` y solicitamos la opción `what="std"`. 
+
+```{r}
+inspect(r.mod.1,what="std")
+```
+
+## Caso especial del primer modelo. Quito variables con error.
+
+```{r}
+mod.1.b<-'f =~ V1 + V2 + V3 + V4 + V5'
+
+r.mod.1.b<-sem(mod.1.b, data=D, ordered=T)
+```
+
+
+```{r}
+fitMeasures(r.mod.1.b, c("cfi.robust", "tli.robust", "rmsea.robust"))
+inspect(r.mod.1.b,what="std")
+```
+
+## Son similares los scores
+
+```{r}
+p.mod.1<-lavPredict(r.mod.1)
+p.mod.1.b<-lavPredict(r.mod.1.b)
+
+plot(p.mod.1, p.mod.1.b)
+cor(p.mod.1, p.mod.1.b)
+```
+
+## Con el score observado
+
+```{r}
+Dp<-data.frame(cbind(D, p.mod.1, p.mod.1.b))
+Dp$obs.score<-rowSums(D[,1:9])
+Dp$obs.score.b<-rowSums(D[,1:5])
+```
+
+```{r}
+boxplot(Dp$f~Dp$obs.score)
+```
+
+```{r}
+boxplot(Dp$f.1~Dp$obs.score.b)
+```
+
+## Confiabilidad
+
+Utilizamos el paquete `semTools` para estimar confiabilidad. Dentro de este paquete vamos a implementar la función `reliability()`. Esta función nos arroja distintos estadísticos. Algunas consideraciones se ponen a continuación:
+
+- Cuando se trata de variables ordinales y equivalencia Tau se sostiene entonces es utilizar $\alpha_o$ (alpha ordinal) es razonable. 
+
+- Los omegas utilizan diferente denominador. $\omega_1$ supone que los errores del modelo no están correlacionados. $\omega_2$ considera correlaciones de los errores. $\omega_1$ y $\omega_2$ suponen que la matriz de covarianzas del modelo explica la relación entre los ítems a la perfección. $\omega_3$ es el más conservador y utiliza la matriz de covarianzas observada. 
+
+- Cuando el ajuste del modelo es bueno lo más recomendable es utilizar $\omega_3$. Cuando no es así, es mejor utilizar $\omega_{1,2}$ cuando estos son iguales. 
+
+- La avevar es la varianza extraída promedio de cada indicador. En el caso del segundo modelo es mucho más alta. 
+
+```{r}
+library(semTools)
+
+reliability(r.mod.1)
+reliability(r.mod.1.b)
+```
+
+# Modelo 2
+
+Suponga que un segundo equipo de investigación pretende medir el mismo fenómeno pero propone un modelo unidimensional de 15 indicadores. Es decir, es una expansión del modelo anterior. A este modelo le vamos a llamar `mod.2` y los resultados los vamos a guardar en el objeto `r.mod.2`
+
+```{r}
+mod.2<-'f =~ V1 + V2 + V3 + V4 + V5 + V6 + V7 + V8 + V9 + V10 + V11 + V12 + V13 + V14 + V15'
+r.mod.2<-sem(mod.2, data=D, ordered=T)
+```
+
+Extraemos los resultados de ajuste global con la función `fitMeasures()` y también extraemos los valores de las cargas factoriales. De acuerdo a los estadísticos globales de ajuste este modelo no es bueno. Más indicadores no necesariamente significa mejor medición (y vice versa). Es la calidad de la información la que importa. 
+
+```{r}
+fitMeasures(r.mod.2, c("cfi.robust", "tli.robust", "rmsea.robust"))
+inspect(r.mod.2,what="std")
+```
+
+## Similitud entre los scores
+
+Sé que el primer modelo (reducido) de seis variables tiene mejor ajuste y alta confiabilidad. ¿Qué pasaría si comparo los scores? Para ello podemos utilizar nuevamente la función `lavPredict()` y graficar los resultados. 
+
+```{r}
+p.mod.2<-lavPredict(r.mod.2)
+
+plot(p.mod.1.b, p.mod.2)
+cor(p.mod.1.b, p.mod.2)
+```
+
+```{r}
+Dp$obs.score.2<-rowSums(D[,1:15])
+```
+
+```{r}
+Dp<-data.frame(cbind(Dp, p.mod.2))
+boxplot(Dp$f.2~Dp$obs.score.2)
+```
+
+## Confiabilidad
+
+Más variables no mejora la confiabilidad. No es el tamaño de datos sino la calidad de información.
+
+- Si el modelo ajusta bien $\omega_3 \sim \omega_2$. Vemos que en el caso del segundo modelo hay una discrepancia fuerte. En este caso no es recomendable utilizar $\omega_3$. 
+
+```{r}
+reliability(r.mod.1.b)
+reliability(r.mod.2)
+```
+
+# Modelo 3
+
+El tercer modelo es una expansión del primer modelo que agrega los indicadores V10-V12. Por las simulaciones se sabe que estos indicadores son tienen muy bajo error y no son redundantes (aportan distinta información).  
+
+```{r}
+mod.3<-'f =~ V1 + V2 + V3 + V4 + V5 + V10 + V11 + V12'
+
+r.mod.3<-sem(mod.3, data=D, ordered=T)
+```
+
+Al inspeccionar las cargas factoriales observamos que se trata de un modelo con indicadores con muy bajo error. El ajuste global es mejor que en el caso del primer modelo con bajo error.   
+
+```{r}
+fitMeasures(r.mod.3, c("cfi.robust", "tli.robust", "rmsea.robust"))
+inspect(r.mod.3,what="std")
+```
+
+## Son similares los scores
+
+```{r}
+p.mod.3<-lavPredict(r.mod.3)
+
+plot(p.mod.1.b, p.mod.3)
+cor(p.mod.1.b, p.mod.3)
+```
+
+```{r}
+Dp$obs.score.3<-rowSums(D[,c(1:5,10:12)])
+```
+
+```{r}
+Dp<-data.frame(cbind(Dp, p.mod.3))
+boxplot(Dp$f.3~Dp$obs.score.3)
+```
+
+## Confiabilidad
+
+Más variables mejora la confiabilidad marginalmente. No es el número de datos sino la calidad de información.
+
+```{r}
+reliability(r.mod.3)
+```
+
+# Modelo 4: Intercambiando indicadores con la misma información
+
+El modelo 4 usa variables distintas al tercero y el ajuste global es igualmente bueno. 
+
+```{r}
+mod.4<-'f =~ V1 + V2 + V3 + V4 + V5 + V13 + V14 + V15'
+
+r.mod.4<-sem(mod.4, data=D, ordered=T)
+```
+
+```{r}
+fitMeasures(r.mod.4, c("cfi.robust", "tli.robust", "rmsea.robust"))
+inspect(r.mod.4,what="std")
+```
+
+# Error puntual
+
+```{r}
+s.mod.4<-summary(r.mod.4, standardized=TRUE, rsquare=TRUE )
+fld.mod.4<-s.mod.4$pe$std.lv[1:8]^2
+error.mod.4<-1-fld.mod.4
+```
+
+# Elaboración de diagramas de SEM
+
+Para la elaboración de diagramas de SEM existen diferentes paquetes: `lavaanPlot` y `semPlot` son los más populares. En esta ocasión utilizaremos el primero de estos paquetes. Es importante instalar este paquete de la fuente original para asegurarnos que tenemos la versión más nueva del mismo. 
+
+```{r}
+#install.packages("devtools")
+#devtools::install_github("alishinski/lavaanPlot")
+library(lavaanPlot)
+```
+
+La función `lavaanPlot()` tiene varias opciones. Si quisieramos solamente el diagrama estructural sin coeficientes basta con indicar el modelo en cuestión. 
+
+```{r}
+lavaanPlot(model = r.mod.4)
+```
+
+Para modificar nuestro diagrama de acuerdo a nuestras necesidades, podemos utilizar las siguientes opciones. Siendo las más importantes `coefs=T` y `stand=T`. Esto para que imprima los valores de los coeficientes estandarizados. Quizá para modelos de SEM donde hay otro tipo de relaciones entre las latentes y las observadas no sea tan útil especificar los coeficientes estandarizados. 
+
+```{r}
+lavaanPlot(model = r.mod.4, node_options = list(shape = "box", fontname = "Helvetica"), 
+            edge_options = list(color = "blue"), coefs = T,
+            stand = TRUE, graph_options = list(rankdir = "LR"))
+```
+
+```{r}
+lavaanPlot(model = r.mod.2, node_options = list(shape = "box", fontname = "Helvetica"), 
+            edge_options = list(color = "red"), coefs = T,
+            stand = TRUE, graph_options = list(rankdir = "LR"))
+```
+
+# Extras 1: Igualdad de los parámetros
+
+En ocasiones quisiéramos saber si las cargas factoriales de dos parámetros son iguales (¿por qué sería útil saber esto?). Para ello podemos hacer un test formal de Wald. La función para hacerlo es `lavTestWald()`. Está función nos permite hacer una prueba de diferencia entre parámetros, es la misma que se usa en regresión. ¿Qué desventajas podría tener esta prueba? ¿Qué pasa si tiene una muestra pequeña o grande?
+
+```{r}
+mod.1.e<-'f =~ V1 + b2*V2 + b3*V3 + V4 + V5 + V6 + V7 + V8 + b9*V9'
+r.mod.1.e<-sem(mod.1.e, data=D, ordered=T)
+summary(r.mod.1.e)
+lavTestWald(r.mod.1.e, constraints = c("b2 == b3"))
+lavTestWald(r.mod.1.e, constraints = c("b2 == b9"))
+```
+
+# Extras 2: Fijando parámetros
+
+- Razón 1: Muchos modelos de medición descansan en la hipótesis de igualdad de contribuciones/pesos/importancia de las variables de interés. Hicimos notar que en alta confiabilidad ($\omega>.8$) no debe preocuparnos tanto que no haya igualdad exacta en cargas factoriales. Es posible, sin embargo, poner a prueba dicha hipótesis. Esto puede hacerse de varias maneras en `lavaan`. Por ejemplo, imponiendo un valor fijo a cada variable. 
+
+- Razón 2: En ocasiones es necesario fijar algún parámetro para poder identificar el modelo. En la mayoría de los casos se sugiere utilizar "1" porque es reflejo de una aspiración (que el indicador tiene nulo error). Sin embargo, fijar parámetros depende de la información que tengamos del modelo de medición en cuestión. 
+
+```{r}
+mod.1.f<-'f =~ 1*V1 + 1*V2 + 1*V3 + V4 + V5 + V6 + 1*V7 + 1*V8 + 1*V9'
+r.mod.1.f<-sem(mod.1.f, data=D, ordered=T)
+summary(r.mod.1.f)
+```
+
+## Confiabilidad bajo igualdad de parámetros
+
+Con la función `reliability()` calculamos confiabilidad. Esto es lo que se podría obtener en caso de que V7-V9 tuvieran cargas factoriales igual a 1. Esto es sospechoso porque ya sabíamos que dichas variables tienen alto erro de medición. ¿Es un buen modelo?
+
+```{r}
+reliability(r.mod.1.f)
+```
+
+Veamos el ajuste global de este modelo con la función `fitMeasures()`. El modelo es muy malo. La igualdad de parámetros es una ilusión, no hay forma de incorporarla artificialmente a los datos. 
+
+```{r}
+fitMeasures(r.mod.1.f, c("cfi.robust", "tli.robust", "rmsea.robust"))
+```
+
+# Extras 3: Comparación de ajuste global de modelos
+
+¿Es entonces posible fijar los parámetros sin ningún tipo de penalización? **No**. Esto se puede comprobar fácilmente comparando el ajuste global de los tres modelos: El original, el modelo al que asignamos etiquetas a algunos parámetros y el modelo con restricciones en las cargas factoriales. 
+
+La comparación se hace fácilmente con la función `compareFit()` del paquete `semTools`. Una vez implementada la función, lo que sigue es extraer el resumen de los resultados. Los modelos se ordenan de mejor a peor ajuste. Vemos que el modelo `r.mod.1.f` es el peor. La prueba $\chi^2$ confirma el resultado. Cuando $p<.05$ se rechaza el modelo actual. 
+
+```{r}
+comp<-compareFit(r.mod.1.f, r.mod.1.e, r.mod.1)
+summary(comp)
+```
+
+# Extras 4: ICLUST beta
+
+Si quisiéramos explorar las relaciones entre los indicadores sin comprometernos a un CFA, podemos utilizar el Iclust de William Revelle que sirve para calcular $\beta$. Si lo aplicamos a la primera propuesta de nueve indicadores tendríamos que llamar al paquete `psych()` y utilizar la función `ICLUST()`. 
+
+Los resultados indican que la medida propuesta es altamente heterogénea a tal grado que si se incluyeran los indicadores 7, 8 y 9 la confiabilidad (split-half) se deterioraría hasta .07. Esto sería señal de que no es buena idea dejar estos tres indicadores. Las implicaciones ya quedaron de manifiesto en las secciones anteriores. 
+
+```{r}
+library(psych)
+#install.packages("psychTools")
+
+Beta<-ICLUST(D[,1:9])
+Beta
+```
+
+
+
