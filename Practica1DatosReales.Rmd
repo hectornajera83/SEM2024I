@@ -1,0 +1,269 @@
+---
+title: "Practica1Real"
+author: "HENC"
+date: "2023-10-12"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(pacman)
+p_load(haven, dplyr, lavaan, semTools)
+```
+
+# Cargamos los datos de pobreza 2014 del CONEVAL ("pobreza_14sample.dta"). 
+
+```{r}
+library(haven)
+Dm<-read_dta("pobreza_14sample.dta")
+names(Dm)
+```
+
+# Paso 1: Definición del modelo estrctural
+
+```{r}
+m.1<-"f1 =~ isb_agua +  isb_dren +  isb_luz + isb_combus
+      f2 =~ icv_muros + icv_techos +  icv_pisos + icv_hac
+      f3 =~ ia_1ad + ia_2ad + ia_3ad + ia_4ad + ia_5ad + ia_6ad
+      Mp =~ f1 + f2 + f3"
+```
+
+```{r}
+r.1<-sem(m.1, data=Dm, ordered=T, sampling.weights = "weight")
+```
+
+```{r}
+summary(r.1, fit.measures=TRUE, standardized=TRUE, rsquare=TRUE)
+```
+
+
+La confiabilidad total de la escala ($\omega_t$,  omegaL1) es igual a .64 de acuerdo con `reliabilityL2`. 
+
+La confiabilidad total de las dimensiones atribuible al primer factor ($\omega_t$,  omegaL2) es igual a .76 de acuerdo con `reliabilityL2`. 
+
+```{r}
+reliability(r.1)
+reliabilityL2(r.1, "Mp")
+```
+
+La confiabilidad total del factor general (h) ($\omega_{h}$) se obtiene con la función `compRelSEM(r.1, higher = "Mp", ord.scale = F)`. Es igual a .648 (Valor sobrestimado). 
+
+```{r}
+compRelSEM(r.1, higher = "Mp", ord.scale = F)
+```
+
+# Diagramas
+
+```{r}
+#install.packages("devtools")
+#devtools::install_github("alishinski/lavaanPlot")
+library(lavaanPlot)
+
+lavaanPlot(model = r.1, node_options = list(shape = "box", fontname = "Helvetica"), 
+            edge_options = list(color = "grey"), coefs = T,
+            stand = TRUE, graph_options = list(rankdir = "LR"))
+```
+
+# Scores factoriales con valores perdidos
+
+Al igual que en el caso unidimensional podemos producir los scores factoriales (scores óptimos dado el modelo) con la función `lavPredict`.
+
+```{r}
+Dm %>% filter_at(vars(isb_combus), all_vars(!is.na(.))) -> Dmp
+Dmp$pred.1<-lavPredict(r.1, newdata=Dmp)
+```
+
+Si revisamos las primeras filas de la columna `pred.1`, nos daremos cuenta que se generaron cuatro nuevas variables (si, variables dentro de variables). Estas contienen los scores de los tres factores y del factor general. 
+
+```{r}
+head(Dmp$pred.1)
+```
+
+# Segundo modelo
+
+Cargamos los datos de pobreza 2018 del CONEVAL ("pobreza_18sample.dta"). 
+
+```{r}
+Dm18<-read_dta("pobreza_18sample.dta")
+names(Dm18)
+```
+
+```{r}
+m.2<-"Mp =~ ic_ali + ic_rezedu + ic_asalud + ic_segsoc + ic_cv + ic_sbv"
+```
+
+```{r}
+r.2<-sem(m.2, data=Dm18, ordered=T, sampling.weights = "factor")
+```
+
+```{r}
+summary(r.2, fit.measures=TRUE, standardized=TRUE, rsquare=TRUE)
+```
+
+```{r}
+reliability(r.2)
+```
+
+```{r}
+Dm18$pred.2<-lavPredict(r.2, newdata=Dm18)
+```
+
+¿Qué es lo que está pasando? No parece que la confiabilidad afecte el ordenamiento. 
+
+```{r}
+boxplot(Dm18$pred.2~Dm18$i_privacion)
+```
+
+Las variables latentes están estandarizadas. Lo que queremos es buena cobertura. Solamente tenemos información para el 33% de lo que nos gustaría saber. Es demasiado compacta esta escala.
+
+```{r}
+boxplot(Dm18$pred.2~Dm18$i_privacion, ylim=c(-.5,2.5))
+```
+
+## El efecto de la seguridad social
+
+```{r}
+m.3<-"Mp =~ ic_ali + ic_rezedu + ic_asalud  + ic_cv + ic_sbv"
+```
+
+```{r}
+r.3<-sem(m.3, data=Dm18, ordered=T, sampling.weights = "factor")
+```
+
+```{r}
+summary(r.3, fit.measures=TRUE, standardized=TRUE, rsquare=TRUE)
+```
+
+```{r}
+reliability(r.3)
+```
+
+```{r}
+Dm18$pred.3<-lavPredict(r.3, newdata=Dm18)
+```
+
+```{r}
+Dm18$i_privacionB<-rowSums(Dm18[,c("ic_ali","ic_rezedu", "ic_asalud", "ic_cv","ic_sbv")])
+```
+
+```{r}
+boxplot(Dm18$pred.3~Dm18$i_privacionB, ylim=c(-.5,2.5))
+```
+
+# El modelo más próximo del CONEVAL
+
+Bajo este modelo. Las cargas factoriales son iguales. El modelo intentará encontrar la mejor solución posible dada esta condición, i.e. el máximo valor de las cargas factoriales, dado que son iguales.  
+
+```{r}
+m.4<-"Mp =~ 1*ic_ali + 1*ic_rezedu + 1*ic_asalud + 1*ic_segsoc + 1*ic_cv + 1*ic_sbv"
+```
+
+```{r}
+r.4<-sem(m.4, data=Dm18, ordered=T, sampling.weights = "factor")
+```
+
+```{r}
+summary(r.4, fit.measures=TRUE, standardized=TRUE, rsquare=TRUE)
+```
+
+```{r}
+reliability(r.4)
+```
+
+```{r}
+Dm18$pred.4<-lavPredict(r.4, newdata=Dm18)
+```
+
+¿Qué es lo que está pasando? No parece que la confiabilidad afecte el ordenamiento. 
+
+```{r}
+boxplot(Dm18$pred.4~Dm18$i_privacion)
+```
+
+Las variables latentes están estandarizadas. Lo que queremos es buena cobertura. Solamente tenemos información para el 33% de lo que nos gustaría saber. Es demasiado compacta esta escala.
+
+```{r}
+boxplot(Dm18$pred.4~Dm18$i_privacion, ylim=c(-.5,2.5))
+```
+
+## Extra 1: Problemas en el contexto de regresión
+
+```{r}
+library(data.table)
+D<-fread("Sim_data_1_1.dat")
+```
+
+```{r}
+head(D)
+```
+
+Genero dos escalas. Sé que la primera es menos confiable que la segunda. 
+
+```{r}
+D$obs.score.ur<-rowSums(D[,3:9])
+D$obs.score.re<-rowSums(D[,1:6])
+```
+
+Cargamos la libreria `MASS`.
+
+```{r}
+library(MASS)
+```
+
+Usamos la función `polr()` para estimar modelos ordinales con cinco predictores: V16:V20. 
+
+```{r}
+coef.ur<-summary(polr(as.factor(obs.score.ur) ~ V16  +     V17   +   V18  +    V19    +   V20, data=D))
+coef.re<-summary(polr(as.factor(obs.score.re) ~ V16  +     V17   +   V18  +    V19    +   V20, data=D))
+```
+
+## Gráfica:
+
+La gráfica de abajo se hace con el paquete `ggplot2` con la función `ggplot()`. Lo que tenemos que hacer es extraer los coeficientes, crear una base de datos con los mismos y pasar los argumentos necesarios a la función para graficar. 
+
+```{r}
+library(ggplot2)
+coef<-data.frame(coef=rbind(coef.ur$coefficients[1:5,],coef.re$coefficients[1:5,]), model=rep(c("unreliable","reliable"), each=5))
+coef$variable<-rep(c("X1","X2","X3","X4","X5"), 2)
+ggplot(coef, aes(variable, coef.Value, color=model)) + geom_point() + geom_errorbar(aes(ymin=coef.Value-c(`coef.Std..Error`*1.96), 
+                                                                                        ymax=coef.Value+c(`coef.Std..Error`*1.96)), width=.1) + theme_classic()
+```
+
+## Extra 2: ¿Escalas equivalentes con items diferentes?
+
+Creamos diferentes escalas. En principio, las tres primeras son más confiables y más parecidas que la última. 
+
+```{r}
+D$obs.score.re3<-rowSums(D[,c(1:5,10:12)])
+D$obs.score.re4<-rowSums(D[,c(1:5,13:15)])
+D$obs.score.re5<-rowSums(D[,c(1:6,10,15)])
+D$obs.score.re6<-rowSums(D[,c(3:9)])
+```
+
+Estimamos los modelos con la función `plor`. 
+
+```{r}
+coef.re3<-summary(polr(as.factor(obs.score.re3) ~ V16  +     V17   +   V18  +    V19    +   V20, data=D))
+coef.re4<-summary(polr(as.factor(obs.score.re4) ~ V16  +     V17   +   V18  +    V19    +   V20, data=D))
+coef.re5<-summary(polr(as.factor(obs.score.re5) ~ V16  +     V17   +   V18  +    V19    +   V20, data=D))
+coef.ur6<-summary(polr(as.factor(obs.score.re6) ~ V16  +     V17   +   V18  +    V19    +   V20, data=D))
+```
+
+```{r}
+coef<-data.frame(coef=rbind(coef.re3$coefficients[1:5,],coef.re4$coefficients[1:5,],coef.re5$coefficients[1:5,]), model=rep(c("reliable3","reliable4","reliable5"), each=5))
+coef$variable<-rep(c("X1","X2","X3","X4","X5"), 3)
+ggplot(coef, aes(variable, coef.Value, color=model)) + geom_point() + geom_errorbar(aes(ymin=coef.Value-c(`coef.Std..Error`*1.96), 
+                                                                                        ymax=coef.Value+c(`coef.Std..Error`*1.96)), width=.1) + theme_classic()
+```
+
+El error de medición es malo para sus modelos. 
+
+```{r}
+coef<-data.frame(coef=rbind(coef.re3$coefficients[1:5,],coef.re4$coefficients[1:5,],coef.re5$coefficients[1:5,],coef.ur6$coefficients[1:5,]), model=rep(c("reliable3","reliable4","reliable5","unreliable6"), each=5))
+coef$variable<-rep(c("X1","X2","X3","X4","X5"), 4)
+ggplot(coef, aes(variable, coef.Value, color=model)) + geom_point() + geom_errorbar(aes(ymin=coef.Value-c(`coef.Std..Error`*1.96), 
+                                                                                        ymax=coef.Value+c(`coef.Std..Error`*1.96)), width=.1) + theme_classic()
+```
