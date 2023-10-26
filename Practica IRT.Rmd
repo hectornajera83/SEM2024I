@@ -1,0 +1,282 @@
+---
+title: "Ejercicio: IRT. SEM y medición economico-social"
+author: "Héctor Nájera"
+date: "26/10/2023"
+output: html_document
+---
+
+La EMSA descansa en dos supuestos fundamentales:
+
+1.	La EMSA es unidimensional, i.e. los indicadores son manifestaciones de un mismo constructo.
+2.	Los indicadores miden distintos niveles de severidad de seguridad alimentaria y discriminan equivalentemente (i.e. se trata de un modelo RASCH)
+
+## Datos
+
+El archivo `"DatosEMSA2008.csv"` contiene los datos (15 columnas). La primera columna es el id de la persona y las siguientes 12 columnas corresponden a los indicadores binarios de la EMSA (1=Carencia; 0=Sin Carencia), la columna 14 es el identificador de pobreza por ingreso y la columna 15 contiene el total de integrantes del hogar.
+
+
+```{r message=FALSE, include=TRUE, tidy=TRUE}
+D<-read.csv("DatosEMSA2008.csv")
+head(D)
+```
+
+```{r fig.cap="Items de la EMSA",  out.height = "900px", out.width = "1000px", echo=FALSE}
+knitr::include_graphics("EMSA.png")
+```
+
+Primero estimamos la prevalencias de cada episodio de hambre o de poca variedad de alimentos. Observamos cierta relación entre la crudeza del episodio de hambre y la proporción de hogares con la carencia. Ha mayor crudeza menor prevalencia. Esto es lo que esperaríamos observar en una escala que busca capturar distintas severidades del fenómeno de interés. 
+
+```{r include=TRUE}
+colMeans(D[,2:13])*100
+```
+
+## Teoría de respuesta al ítem
+
+Nos hemos enfocado en la confiabilidad global de los scores. Sin emabrgo, no tenemos mucha idea del tipo de información que aporta cada ítem a los scores globales. Esto es importante porque la EMSA apunta a capturar distintas severidades del fenómenos de interés. Estimaremos primero un modelo **Rasch** puesto que es el modelo teórico que debería representarse en los datos. Este modelo supone que las diferencias de los ítems ocurren en términos de severidad y no de discriminación. Usaremos el paquete `mirt()` y la opción `rasch()`. 
+
+```{r include=TRUE}
+library(mirt)
+
+m<-mirt(D[,2:13], 1, itemtype = 'Rasch')
+```
+
+Ahora inspeccionamos los parámetros con la función `coef`. Donde a es la discriminación y b es la severidad. g es el parámetro de la suerte. 
+
+```{r message=FALSE}
+coef(m, IRTpars = T, simplify = T)
+```
+
+Los ítems de la EMSA parecen capturar distintos grados de severidad. Observamos que los ítems de adultos tienenden a ser menos severos (a la izquierda) que los de infancia. Parece razonable el supuesto de la EMSA. Sin embargo, las distancia entre varias de las curvas son pequeñas y algunas se traslpan. Esto significa que algunos de los indicadores son redundantes.
+
+```{r message=FALSE}
+plot(m, type = "trace")
+```
+
+Si queremos ver todos los indicadores
+
+```{r message=FALSE}
+plot(m, type = 'trace', auto.key = FALSE, which.items = 1:12, facet_items=FALSE)
+```
+
+### Mejores gráficas con `ggplot2`
+
+```{r message=FALSE}
+plt <- plot(m, type = 'trace', facet_items=FALSE) #store the object
+#print(plt) #plot the object
+#str(plt) #find the data
+#plt$panel.args
+pltdata <- data.frame(lapply(plt$panel.args, function(x) do.call(cbind, x))[[1]])
+pltdata$item <- rep(colnames(D[,2:13]), each = 200)
+head(pltdata)
+
+library(ggplot2)
+ggplot(pltdata, aes(x, y, colour=item)) + geom_line() + ggtitle('ggplot2 Tracelines') +
+    xlab(expression(theta)) + ylab(expression(P(theta))) + theme_classic() + xlim(c(-3,3))
+```
+
+
+## Modelo de dos parámetros
+
+Ahora estimamos un modelo de teoría de respuesta al ítem de dos parámetros. Cambiamos el argumento `itemtype="2PL"`. 
+
+Es decir, relajamos el supuesto de que la dificultad es la misma para todos los ítems. Observamos que el supuesto del modelo rasch no parece sostenerse. Las pendientes tienender a ser distintas y las curvas de alguos ítem cruzan otras curvas. Ciertos ítems como el *iaa_4* parecen tocar distintos niveles de seguridad alimentaria. Aunque los parámetros de discriminación son distintos, en todos los casos son valores altos $\geq.9$. Esto es consistente con los altos valores de las $\lambda$'s del modelo factorial. 
+
+```{r message=FALSE}
+m2<-mirt(D[,2:13], 1, itemtype = '2PL')
+coef(m2, IRTpars = T, simplify = T)
+```
+
+```{r message=FALSE}
+plot(m2, type = 'trace', auto.key = FALSE, which.items = 1:12, facet_items=FALSE)
+```
+
+### Mejores gráficas con GGPLOT
+
+```{r message=FALSE}
+plt <- plot(m2, type = 'trace', facet_items=FALSE) #store the object
+#print(plt) #plot the object
+#str(plt) #find the data
+#plt$panel.args
+pltdata <- data.frame(lapply(plt$panel.args, function(x) do.call(cbind, x))[[1]])
+pltdata$item <- rep(colnames(D[,2:13]), each = 200)
+head(pltdata)
+
+library(ggplot2)
+ggplot(pltdata, aes(x, y, colour=item)) + geom_line() + ggtitle('ICC') +
+    xlab(expression(theta)) + ylab(expression(P(theta))) + xlim(c(-3,3))
+```
+
+```{r}
+plot(m2, type = 'trace', auto.key = FALSE, which.items = 4:8, facet_items=FALSE)
+```
+
+## Curva total de información
+
+La información puede partirse en distintos segmentos. Por ejemplo, si quisieramos saber la información para un nivel de severidad dado entre -2 y 0 desviaciones estándar podemos utilizar la función `areainfo()`. 
+
+```{r}
+areainfo(m2, c(-2,0), which.items = 1:12)
+```
+Una forma de graficar los resultados para la mayoría de la distribución de la variable latente es extrayendo la información para distintos niveles de Theta. Una vez hecho esto, es posible graficar la curva total de información. 
+
+```{r}
+Theta <- matrix(seq(-3,3, length.out=1000))
+info <- testinfo(m2, Theta)
+plot(info ~ Theta, type = 'l')
+```
+
+```{r}
+plot(m2, type = 'infoSE', theta_lim = c(-3,3))
+```
+
+
+## Comparación de modelos
+
+Podemos utilizar la función `anova()` para comparar los estadísticos de ajuste de ambos modelos. Dado que AICc y BIC son menores para el segundo modelo, concluimos que el segundo modelo es MEJOR! 
+
+```{r}
+anova(m, m2)
+```
+
+
+## Test scores
+
+# Test scores y escalamiento en TRI
+
+Dado un modelo, se estima el score estimado
+
+```{r}
+Theta <- matrix(seq(-3,3,.01))
+tscore <- expected.test(m2, Theta)
+```
+
+## Graficamos la relación de cada score con Theta
+
+```{r}
+plot(cbind(Theta, tscore))
+```
+
+# Segundo ejemplo
+
+Ahora vamos hacer estimaciones de TRI considerando el índice de seis carencias del CONEVAL. Para ello utilizaremos los datos 2018. 
+
+```{r}
+library(haven)
+D18<-read_dta("pobreza_18sample.dta")
+```
+
+El modelo del CONEVAL no parece pensar a las carencias en términos exclusivos de diferencias en severidad. Noten que también se pueden pasar los nombres de las variables. Con la función `coef()` se extraen los valores de la discriminación "a" y de la severidad "b". Hay valores un tanto bajos: ic_rezedu, ic_asalud, ic_ali. 
+
+```{r}
+m3<-mirt(D18[,c("ic_rezedu", "ic_asalud", "ic_segsoc", "ic_sbv", "ic_ali", "ic_cv")], 1, itemtype = '2PL', weights=D18$factor)
+coef(m3, IRTpars = T, simplify = T)
+```
+
+Podemos graficar los resultados de la siguiente manera con `ggplot2`
+
+```{r message=FALSE}
+plt <- plot(m3, type = 'trace', facet_items=FALSE) 
+pltdata <- data.frame(lapply(plt$panel.args, function(x) do.call(cbind, x))[[1]])
+pltdata$item <- rep(c("ic_rezedu", "ic_asalud", "ic_segsoc", "ic_sbv", "ic_ali", "ic_cv"), each = 200)
+head(pltdata)
+
+library(ggplot2)
+ggplot(pltdata, aes(x, y, colour=item)) + geom_line() + ggtitle('ICC') +
+    xlab(expression(theta)) + ylab(expression(P(theta))) + xlim(c(-3,3)) + theme_classic()
+```
+
+Ahora calculamos la curva total de información. La curva luce bastante baja. Mostrnado la poca información que existe en el índice de carencias. 
+
+```{r}
+areainfo(m3, c(-3,0), which.items = 1:6)
+Theta <- matrix(seq(-3,3, length.out=1000))
+info <- testinfo(m3, Theta)
+plot(info ~ Theta, type = 'l')
+
+plot(m3, type = 'infoSE', theta_lim = c(-3,3))
+```
+
+
+```{r}
+tabscores <- fscores(m3, full.scores = FALSE)
+head(tabscores)
+```
+
+# Test scores y escalamiento en TRI
+
+```{r}
+plot(m3, type = 'score', theta_lim = c(-3, 3), main = "")
+```
+
+# Extras: ¿Qué pasa si incluimos la pobreza por ingresos?
+
+```{r}
+m4<-mirt(D18[,c("ic_rezedu", "ic_asalud", "ic_segsoc", "ic_sbv", "ic_ali", "ic_cv", "plb_m")], 1, itemtype = '2PL', weights=D18$factor)
+coef(m4, IRTpars = T, simplify = T)
+```
+
+
+```{r}
+anova(m4, m3)
+```
+
+
+```{r}
+plot(m4, type = 'infoSE', theta_lim = c(-3,3))
+```
+
+
+# Extras: Estimación del ajuste de cada indicador. 
+
+La función itemfit muestra los cambios en $\chi^2$ atribuibles a los indicadores y el valor de RMSEA por indicador. Estos estadísticos pueden usarse para identificar items problemáticos en el contexto del modelo estimado. Valores de RMSEA.S_X2>.05 indican un pobre ajuste.
+
+
+```{r}
+itemfit(m3)
+```
+
+# Respuestas graduadas (graded response)
+
+Description: This data set comes from the Consumer Protection and Perceptions of Science and Technology section of the 1992 Euro-Barometer Survey (Karlheinz and Melich, 1992) based on a sample from Great Britain.
+
+All of the below items were measured on a four-group scale with response categories "strongly disagree", "disagree to some extent", "agree to some extent" and "strongly agree". 
+
+- Comfort Science and technology are making our lives healthier, easier and more comfortable.
+
+- Work The application of science and new technology will make work more interesting.
+
+- Future Thanks to science and technology, there will be more opportunities for the future generations.
+
+- Benefit The benefits of science are greater than any harmful effect it may have.
+
+Se puede pensar que $\theta$ es la confianza latente que tiene la gente en la ciencia
+
+
+```{r}
+ggum <- mirt(Science, 1, itemtype = "graded")
+coef(ggum, simplify=TRUE)
+plot(ggum)
+plot(ggum, type = 'trace')
+plot(ggum, type = 'itemscore')
+```
+
+# Mejores gráficas
+
+```{r}
+#devtools::install_github("masurp/ggmirt")
+library(ggmirt)
+```
+
+Para obtener las curvas características simplemente usamos la función `tracePlot()`
+
+```{r}
+tracePlot(ggum) +
+  labs(color = "Answer Options")
+```
+
+Misma operación pero con otra función para la curva total de información
+
+```{r}
+testInfoPlot(ggum, adj_factor = .5)
+```
+
