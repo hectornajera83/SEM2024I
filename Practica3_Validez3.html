@@ -359,8 +359,13 @@ display: none;
 
 <pre class="r"><code>library(pacman)
 p_load(&quot;data.table&quot;, dplyr, descr, lavaan)</code></pre>
-<pre class="r"><code>D&lt;-fread(&quot;Sim_data_1_1.dat&quot;)
-fwrite(D, file=&quot;Sim_data_1_1.csv&quot;)</code></pre>
+<div id="introducción" class="section level1">
+<h1>Introducción</h1>
+<p>Esta práctica utiliza los datos “Sim_data_1_1.dat”.</p>
+<pre class="r"><code>D&lt;-fread(&quot;Sim_data_1_1.dat&quot;)</code></pre>
+<p>Para facilitar la práctica vamos a asignar nombres a las variables.
+u1-u15 son variables binarias de algún modelo de medición y X1-X5 son
+predictores de la variable latente en cuestión.</p>
 <pre class="r"><code>names(D)&lt;-c(&quot;U1&quot;,&quot;U2&quot;,&quot;U3&quot;,&quot;U4&quot;,&quot;U5&quot;,&quot;U6&quot;,&quot;U7&quot;,&quot;U8&quot;,&quot;U9&quot;,&quot;U10&quot;,&quot;U11&quot;,&quot;U12&quot;,&quot;U13&quot;,&quot;U14&quot;,&quot;U15&quot;,
             &quot;X1&quot;,&quot;X2&quot;,&quot;X3&quot;,&quot;X4&quot;,&quot;X5&quot;)
 head(D)</code></pre>
@@ -378,8 +383,9 @@ head(D)</code></pre>
 ## 4:  2.629497 5.316279 -0.422520
 ## 5: -0.762698 5.878410  0.337926
 ## 6:  2.998187 2.479318 -0.249493</code></pre>
-<p>Genero dos escalas. Sé que la primera es menos confiable que la
-segunda.</p>
+<p>Para el ejercicio generaremos dos escalas. Sé que la primera es menos
+confiable que la segunda. La primera con los items U4-U9 y la segunda
+con los items U1-U6.</p>
 <pre class="r"><code>D$y.ur&lt;-rowSums(D[,4:9])
 D$y.re&lt;-rowSums(D[,1:6])</code></pre>
 <p>Usaremos el modelo unidimensional con bajo error como referencia.
@@ -467,6 +473,7 @@ summary(r.mod.1)</code></pre>
 ##     U4                1.000                           
 ##     U5                1.000                           
 ##     U6                1.000</code></pre>
+</div>
 <div id="effectos-de-la-medida-poco-confiable-vs-la-confiable." class="section level1">
 <h1>Effectos de la medida poco confiable vs la confiable.</h1>
 <p>Imaginemos que tenemos dos escalas que en principio miden lo mismo
