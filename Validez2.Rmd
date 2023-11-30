@@ -1,0 +1,191 @@
+---
+title: "Validez2"
+author: "Hector Najera"
+date: "2023-11-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message = FALSE)
+```
+
+# Introducción
+
+En este ejercicio lo que veremos es cómo descomponer las fuentes de error de medición de algunos indicadores observados. Esto es útil porque podemos explorar las fuentes del error y verificar cuán antribuible es el error a desviaciones sistemáticas: Invalidez. 
+
+```{r}
+library(MplusAutomation)
+library(data.table)
+library(dplyr)
+library(lavaan)
+library(semTools)
+```
+
+
+
+```{r echo=FALSE, include=FALSE, eval=FALSE}
+test<-mplusObject(MONTECARLO = "NAMES=U1-U15 y1 x1 x2 x3 x4 X5; 
+                  GENERATE = U1-U15(1);
+                  CATEGORICAL = U1-U15;
+                  NOBS = 10000;
+                  SEED = 3454367;
+                  NREP = 1;
+                  SAVE = Sim_data_2_*.dat;
+                  REPSAVE = all;", 
+                  MODELPOPULATION ="
+
+    x4@.7;
+    [x4@.5];
+
+    x3@4;
+    [x3@3];
+
+    x2@7
+    [x2@4];
+
+    x1@13;
+    [x1@5];
+    
+    x5@1;
+    [x4@.0];
+
+    x3 with x1@-.5;
+    x4 with y1@-.3;
+    x1 with y1@.35;
+
+    [y1@3.5];
+    y1@8;
+
+     f1 by           u1@2.5
+                     u2@2.2
+                     u3@2.2
+                     u4@2.2
+                     u5@2.2
+                     u6@1.2
+                     u7@.05
+                     u8@.03
+                     u9@.02
+                     u10@1.9
+                     u11@1.7
+                     u12@1.1
+                     u13@1.9
+                     u14@1.7
+                     u15@1.1;
+
+      [f1@0];
+      f1@1;
+
+
+                   [u1$1@2.1]
+                   [u2$1@4.7]
+                   [u3$1@2.7]
+                   [u4$1@3.2]
+                   [u5$1@2.4]
+                   [u6$1@2.9]
+                   [u7$1@1.8]
+                   [u8$1@1.6]
+                   [u9$1@1.7]
+                   [u10$1@.1]
+                   [u11$1@.6]
+                   [u12$1@.5]
+                   [u13$1@4.1]
+                   [u14$1@3.6]
+                   [u15$1@3.5];
+
+
+      f1 on y1@-.5;
+      f1 on x1@-.3;
+      f1 on x2@.15;
+      f1 on x3@.06;
+      f1 on x4@.14;
+      
+      u7 on x5@.7;
+      u8 on x5@.8;
+      u9 on x5@.9;",
+    
+                  ANALYSIS = 
+                    "TYPE = ;
+                  ALGORITHM=INTEGRATION;
+                  PROCESS=8;")
+
+mplusModeler(test, modelout="Sim_data_2.inp",  writeData = "always",
+               hashfilename = FALSE)
+```
+
+Vamos a utilizar los datos "Sim_data_2_1.dat". 
+
+```{r}
+D<-fread("Sim_data_2_1.dat")
+```
+
+Para facilitar la lectura e interpretación de los datos, asignaremos los siguientes nombres. Donde "U" son los indicadores observados binarios, "Y1" es un validador ex ante y las "Xs" son variables auxiliares.
+
+```{r}
+names(D)<-c("U1","U2","U3","U4","U5","U6","U7","U8","U9","U10","U11","U12","U13","U14","U15",
+            "Y1","X1","X2","X3","X4","X5")
+head(D)
+```
+
+# Estimamos un modelo unidimensional
+
+```{r}
+mod.1<-'f =~ U1 + U2 + U3 + U4 + U5 + U6 + U7 + U8 + U9
+        f~~1*f'
+r.mod.1<-sem(mod.1, data=D, ordered=T)
+summary(r.mod.1, standardized=TRUE, rsquare=TRUE)
+```
+
+```{r}
+reliability(r.mod.1)
+```
+
+
+# Explicando el componente de errror
+
+```{r}
+mod.2<-'f =~ U1 + U2 + U3 + U4 + U5 + U6 + U7 + U8 + U9
+        f~~1*f
+        U7 ~ X5
+        U8 ~ X5
+        U9 ~ X5'
+r.mod.2<-sem(mod.2, data=D, ordered=c("U1","U2","U3","U4","U5","U6","U7","U8","U9"))
+summary(r.mod.2, standardized=TRUE, rsquare=TRUE)
+```
+
+```{r}
+library(lavaanExtra)
+nice_lavaanPlot(r.mod.2, sig=1, graph_options = list(rankdir="LR", overlap="false"),  edge_options = list(color = "red"))
+```
+
+
+¿Puedo estimar confiabilidad? Se puede aproximar haciendo cálculos a mano con la fórmula de McDonadld. Sin embargo, está no es la pregunta correcta. La pregunta es ¿Qué justifica poder estimar confiabilidad toda vez que se considera una descompisición del error de medición?
+
+# Desviaciones sistemáticas los indicadores U7-U9
+
+```{r}
+mod.3<-'f =~ U1 + U2 + U3 + U4 + U5 + U6 + U7 + U8 + U9
+        f~~1*f
+        U7 ~ X5
+        U8 ~ X5
+        U9 ~ X5
+        f  ~~ X5'
+r.mod.3<-sem(mod.3, data=D, ordered=c("U1","U2","U3","U4","U5","U6","U7","U8","U9"))
+summary(r.mod.3, standardized=TRUE, rsquare=TRUE)
+```
+
+# Validación según la relación del factor con un validador ex ante:
+
+Noten que mientras f está asociado fuertemente con el validador Y1. X5 no parece tener la relación esperada con el factor. Es decir, U7-U9 tienen una desviación a todas luces sistemática. Si se computaran los scores con la escala de 9 items, lo que se obtendría es un índice que clasifica a la población según dos factores (sin relación). 
+
+```{r}
+mod.3<-'f =~ U1 + U2 + U3 + U4 + U5 + U6 + U7 + U8 + U9
+        f~~1*f
+        U7 ~ X5
+        U8 ~ X5
+        U9 ~ X5
+        Y1  ~~ X5
+        Y1 ~~ f'
+r.mod.3<-sem(mod.3, data=D, ordered=c("U1","U2","U3","U4","U5","U6","U7","U8","U9"))
+summary(r.mod.3, standardized=TRUE, rsquare=TRUE)
+```
+

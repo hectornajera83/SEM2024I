@@ -1,0 +1,149 @@
+---
+title: "Análisis de clases latentes con tidySEM y openMX"
+output: html_document
+date: "2023-11-29"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Vamos a utilizar los siguientes paquetes. La instalación de tidySEM es un poco tardada.
+
+```{r}
+library(pacman)
+p_load(tidySEM, ggplot2, data.table, dplyr)
+```
+
+Para nuestro ejemplo utilizaremos los datos de la ENIGH 2008 (una muestra solamente).
+
+Además calcularemos el score tot_iamen que usa CONEVAL para construir los cuatro grupos de inseguridad alimentaria (iagrupos). 
+
+```{r}
+D<-fread("DatosEMSA2008.csv")
+D$tot_iamen<-rowSums(D[,2:13])
+D$iagrupos<-ifelse(D$tot_iamen==0,0,
+                   ifelse(D$tot_iamen>=1 & D$tot_iamen<=3, 1,
+                     ifelse(D$tot_iamen>=4 & D$tot_iamen<=7, 2,3)))
+```
+
+Solamente para mostrar algunas de las funciones de tidySEM, usaremos la función descriptives
+
+```{r}
+set.seed(123)
+
+desc <- tidySEM::descriptives(D)
+desc <- desc[, c("name", "type", "n", "missing", "unique", "mode",
+"mode_value", "v")]
+desc
+```
+
+Un requisito para estimar modelos de clases latentes con `tidySEM` para variables ordinales es convertir los indicadores de interés a factores ordenados. Esto se hace con la función `factor`. Para hacerlo en un paso, usamos `mutate_at` del paquete `dplyr`.
+
+```{r}
+tofactor<-function(x) factor(x, ordered = T) 
+D %>% mutate_at(c("ia_1ad", "ia_2ad", "ia_3ad", "ia_4ad", "ia_5ad", "ia_6ad", "ia_7men", "ia_8men", "ia_9men", "ia_10men", "ia_11men", "ia_12men"), tofactor) -> D
+```
+
+Una ventaja de usar tidySEM es que podemos iterar los modelos más fácilmente. Esto se hace con la función `mx_lca`. Pediremos que estime modelos de una hasta cuatro clases. 
+
+Nota: Estos cuatro modelos se tardarán varios minutos (10-20 min aprox). Paciencia.
+
+Guardamos los resultados en el objeto "res" para no tener que perder tiempo re-estimando. 
+
+```{r}
+#res <- mx_lca(data = D[,2:13], classes = 1:4)
+#save(res, file="res")
+load("res")
+```
+
+La evaluación de los modelos de clases latentes requiere la inspección conjunta de varios estadísticos. 
+
+- LL: Valor del logaritmo de la función de verosimilitud
+- n: tamaño de muestra
+- Parameters: número de parámetros del modelo
+- BIC: Bayesian Information Criterion
+- Entropy: Entropia (>.9)
+- prob_munL: probabilidad mínima de éxito (>.9)
+- n_min: número de casos de la clase más pequeña (>5%)
+- np_ratio: Observaciones por parámetros
+- np_local: Tamaño de clase por parámetro
+
+```{r}
+fit <- table_fit(res)
+fit[, c("Name", "LL", "n", "Parameters", "BIC", "Entropy", "prob_min",
+"n_min", "np_ratio", "np_local")]
+```
+
+Podemos graficar el valor del BIC
+
+```{r}
+plot(fit)
+```
+
+De acuerdo a los criterios de arriba, el modelo de tres clases resultó ser el mejor. 
+
+```{r}
+res_final <- res[[3]]
+tab <- table_prob(res_final)
+reshape(tab, direction = "wide", v.names = "Probability", timevar = "group",
+idvar = c("Variable", "Category"))
+```
+
+Para graficar los resultados de la solución de tres clases utilizamos `plot_prob`. La clase tres seria la de los no carentes y la 1 y la 2 las de los carentes alimentarios. 
+
+```{r}
+plot_prob(res_final, bw = TRUE)
+```
+
+# Comparamos la clasificación manual con la basada en el LCA
+
+Para ello predecimos para cada persona en la muestra su membresía de clase y extraemos la columna de interés. 
+
+```{r}
+Pred<-class_prob(res_final)
+D$Pred<-Pred$individual[,4]
+```
+
+Podemos estimar los casos pobremente clasificados con una simple tabulación cruzada. Por ejemplo, vemos que el grupo latente 3 corresponde en su mayoría al grupo de 0 carencias. Sin embargo, hay 209 casos que deberían ser parte del grupo 3 y que están en el grupo 1. Según estos resultados hay un 30% de casos mal clasificados.  
+
+```{r}
+library(descr)
+crosstab(D$iagrupos,D$Pred, prop.t = T)
+```
+
+# Análisis con variables auxiliares
+
+La función BCH aplica el análisis conocido como de tres pasos, el cual compara las clases usando un modelo multigrupo, que controla por error de clasificación. Por ejemplo, se puede analizar si cierto factor como la pertenencia al grupo pobre o no pobre por ingresos varia entre las tres clases. Como esperábamos, sí hay relación. 
+
+```{r}
+aux_dep <- BCH(res_final, data = D$plb_m)
+lr_test(aux_dep)
+```
+
+Para ver los valores de los coeficientes utilizamos:
+
+S: Slope
+M: Mean/threshold
+
+Vemos que la clase 3 tiene menos probabilidad de contar con gente pobre por ingresos. 
+
+```{r}
+aux_dep$estimate
+```
+
+
+¿Cambia la relación entre plb_m según número de integrantes del hogar?
+
+De acuerdo a los test de wald, no hay variabilidad entre clases. 
+
+```{r}
+df_aux <- D[, c("plb_m",  "tot_integ")]
+aux_model <- BCH(res_final, model = "plb_m ~ tot_integ",
+data = df_aux)
+coef(aux_model)
+
+wald_test(aux_model,
+"class1.A[1,2]=class2.A[1,2]&class1.A[1,2]=class3.A[1,2]")
+```
+

@@ -1,0 +1,98 @@
+---
+title: "Validez 3"
+author: "Hector Najera"
+date: "2023-11-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(pacman)
+p_load("data.table", dplyr, descr, lavaan)
+```
+
+# Introducción
+
+Esta práctica utiliza los datos "Sim_data_1_1.dat". 
+
+```{r}
+D<-fread("Sim_data_1_1.dat")
+```
+
+Para facilitar la práctica vamos a asignar nombres a las variables. u1-u15 son variables binarias de algún modelo de medición y X1-X5 son predictores de la variable latente en cuestión.
+
+```{r}
+names(D)<-c("U1","U2","U3","U4","U5","U6","U7","U8","U9","U10","U11","U12","U13","U14","U15",
+            "X1","X2","X3","X4","X5")
+head(D)
+```
+
+Para el ejercicio generaremos dos escalas. Sé que la primera es menos confiable que la segunda. La primera con los items U4-U9 y la segunda con los items U1-U6. 
+
+```{r}
+D$y.ur<-rowSums(D[,4:9])
+D$y.re<-rowSums(D[,1:6])
+```
+
+Usaremos el modelo unidimensional con bajo error como referencia. Este modelo tiene los indicadores U1-U6. 
+
+```{r}
+mod.1<-'f =~ U1 + U2 + U3 + U4 + U5 + U6
+        f ~ X1 + X2 + X3 + X4 + X5'
+r.mod.1<-sem(mod.1, data=D, ordered=T)
+summary(r.mod.1)
+```
+
+# Effectos de la medida poco confiable vs la confiable.
+
+Imaginemos que tenemos dos escalas que en principio miden lo mismo *y.ur* y *y.re*. La primera tiene más error aleatorio que la segunda. Si estimamos un modelo usando los scores obsevados como dependientes y ambas fueran igualmente confiables los coeficientes deberían ser iguales. Sin embargo, vemos que los coeficientes de la primera escala se atenuan. 
+
+```{r}
+mod.2<-'y.ur ~ X1 + X2 + X3 + X4 + X5
+        y.re ~ X1 + X2 + X3 + X4 + X5'
+r.mod.2<-sem(mod.2, data=D, ordered=c("y.ur", "y.re"))
+summary(r.mod.2, standardized=TRUE, rsquare=TRUE)
+```
+
+# Tratamiento del error de la variable dependiente.
+
+Si sospechamos de error de medición en la dependiente es mejor usar un modelo conjunto (MIMIC) y usar el factor como dependiente. Esto reduce la atenuación cuando comparamos los resultados de las dos regresiones. Sin embargo, raramente se usan los scores factoriales, lo que se usan son los observados. Su confiabilidad generalmente es más baja. 
+
+```{r}
+mod.3<-'f1 =~ U9 + U8 + U7 + U6 + U5 + U4
+        f1 ~~ 1*f1
+        y.ur ~ X1 + X2 + X3 + X4 + X5
+        f1 ~ X1 + X2 + X3 + X4 + X5'
+r.mod.3<-sem(mod.3, data=D, ordered=c("U4","U5","U6","U7","U8","U9"))
+summary(r.mod.3,  standardized=TRUE)
+```
+
+# Corrección por error de medición en la independientes
+
+Cuando una o más variables independientes tiene error, es necesario también corregir la estimación. Por ejemplo, si no asumimos error, el resultado de la regresión entre *y.ur* y *X1* sería el siguiente:
+
+```{r}
+mod.4<-'X1 ~ y.ur'
+r.mod.4<-sem(mod.4, data=D, ordered="y.ur")
+summary(r.mod.4)
+```
+
+Una forma de corregir la estimación se hace a partir de considerar la varianza observada y la confiabilidad de la variable en cuestión.
+
+```{r}
+var(D$y.ur)
+```
+
+Si suponemos $\omega=.6$ y varianza $.0.6362476$, obtendríamos: (1-.6)*.8=.38
+
+```{r}
+mod.5<-'X1 ~ y.ur
+        y.ur ~~ .380*y.ur'
+r.mod.5<-sem(mod.5, data=D, ordered="y.ur")
+summary(r.mod.5)
+```
+
+
